@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func TestMsg(t *testing.T) {
+func TestReaderWriter(t *testing.T) {
 	buf := bytes.NewBuffer(nil)
 	writer := NewWriter(buf)
 	reader := NewReader(buf)
