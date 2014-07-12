@@ -25,6 +25,17 @@ type ReadCloser interface {
 	io.Closer
 }
 
+type ReadWriter interface {
+	Reader
+	Writer
+}
+
+type ReadWriteCloser interface {
+	Reader
+	Writer
+	io.Closer
+}
+
 type Writer_ struct {
 	W io.Writer
 }
@@ -73,6 +84,28 @@ func (s *Reader_) ReadMsg(msg []byte) (int, error) {
 func (s *Reader_) Close() error {
 	if c, ok := s.R.(io.Closer); ok {
 		return c.Close()
+	}
+	return nil
+}
+
+type ReadWriter_ struct {
+	Reader
+	Writer
+}
+
+func NewReadWriter(rw io.ReadWriter) ReadWriter {
+	return &ReadWriter_{
+		Reader: NewReader(rw),
+		Writer: NewWriter(rw),
+	}
+}
+
+func (rw *ReadWriter_) Close() error {
+	if w, ok := rw.Writer.(WriteCloser); ok {
+		return w.Close()
+	}
+	if r, ok := rw.Reader.(ReadCloser); ok {
+		return r.Close()
 	}
 	return nil
 }
