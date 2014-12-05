@@ -69,15 +69,27 @@ func NewReader(r io.Reader) ReadCloser {
 	return &Reader_{r, make([]byte, 4)}
 }
 
-func (s *Reader_) ReadMsg(msg []byte) (int, error) {
+// nextMsgLen reads the length of the next msg into s.lbuf, and returns it.
+// WARNING: like ReadMsg, nextMsgLen is destructive. It reads from the internal
+// reader.
+func (s *Reader_) nextMsgLen() (int, error) {
 	if _, err := io.ReadFull(s.R, s.lbuf); err != nil {
 		return 0, err
 	}
 	length := int(NBO.Uint32(s.lbuf))
+	return length, nil
+}
+
+func (s *Reader_) ReadMsg(msg []byte) (int, error) {
+	length, err := s.nextMsgLen()
+	if err != nil {
+		return 0, err
+	}
+
 	if length < 0 || length > len(msg) {
 		return 0, io.ErrShortBuffer
 	}
-	_, err := io.ReadFull(s.R, msg[:length])
+	_, err = io.ReadFull(s.R, msg[:length])
 	return length, err
 }
 
