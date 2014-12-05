@@ -5,6 +5,8 @@ import (
 	"sync"
 )
 
+// Chan is a msgio duplex channel. It is used to have a channel interface
+// around a msgio.Reader or Writer.
 type Chan struct {
 	Buffers   [][]byte
 	MsgChan   chan []byte
@@ -13,6 +15,7 @@ type Chan struct {
 	BufPool   *sync.Pool
 }
 
+// NewChan constructs a Chan with a given buffer size.
 func NewChan(chanSize int) *Chan {
 	return &Chan{
 		MsgChan:   make(chan []byte, chanSize),
@@ -21,6 +24,8 @@ func NewChan(chanSize int) *Chan {
 	}
 }
 
+// NewChanWithPool constructs a Chan with a given buffer size, and a sync.Pool
+// for concurrency-safe allocation of read buffers.
 func NewChanWithPool(chanSize int, pool *sync.Pool) *Chan {
 	return &Chan{
 		MsgChan:   make(chan []byte, chanSize),
@@ -33,16 +38,18 @@ func NewChanWithPool(chanSize int, pool *sync.Pool) *Chan {
 func (s *Chan) getBuffer(size int) []byte {
 	if s.BufPool == nil {
 		return make([]byte, size)
-	} else {
-		bufi := s.BufPool.Get()
-		buf, ok := bufi.([]byte)
-		if !ok {
-			panic("Got invalid type from sync pool!")
-		}
-		return buf
 	}
+
+	bufi := s.BufPool.Get()
+	buf, ok := bufi.([]byte)
+	if !ok {
+		panic("Got invalid type from sync pool!")
+	}
+	return buf
 }
 
+// ReadFrom wraps the given io.Reader with a msgio.Reader, reads all
+// messages, ands sends them down the channel.
 func (s *Chan) ReadFrom(r io.Reader, maxMsgLen int) {
 	// new buffer per message
 	// if bottleneck, cycle around a set of buffers
@@ -74,6 +81,8 @@ Loop:
 	s.CloseChan <- true
 }
 
+// WriteTo wraps the given io.Writer with a msgio.Writer, listens on the
+// channel and writes all messages to the writer.
 func (s *Chan) WriteTo(w io.Writer) {
 	// new buffer per message
 	// if bottleneck, cycle around a set of buffers
@@ -104,6 +113,7 @@ Loop:
 	s.CloseChan <- true
 }
 
+// Close the Chan
 func (s *Chan) Close() {
 	s.CloseChan <- true
 }
