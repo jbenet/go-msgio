@@ -5,9 +5,10 @@
 // Pool is no-op under race detector, so all these tests do not work.
 // +build !race
 
-package pool
+package multipool
 
 import (
+	"fmt"
 	"runtime"
 	"runtime/debug"
 	"sync/atomic"
@@ -173,4 +174,21 @@ func BenchmarkPoolOverlflow(b *testing.B) {
 			}
 		}
 	})
+}
+
+func ExamplePool() {
+	var p Pool
+
+	small := make([]byte, 1024)
+	large := make([]byte, 4194304)
+	p.Put(uint32(len(small)), small)
+	p.Put(uint32(len(large)), large)
+
+	small2 := p.Get(uint32(len(small))).([]byte)
+	large2 := p.Get(uint32(len(large))).([]byte)
+	fmt.Println("small2 len:", len(small2))
+	fmt.Println("large2 len:", len(large2))
+	// Output:
+	// small2 len: 1024
+	// large2 len: 4194304
 }

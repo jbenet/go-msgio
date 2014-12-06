@@ -1,4 +1,24 @@
-package pool
+// Package multipool provides a sync.Pool equivalent that buckets incoming
+// requests to one of 32 sub-pools, one for each power of 2, 0-32.
+//
+//	import "github.com/jbenet/go-msgio/multipool"
+//	var p multipool.Pool
+//
+//	small := make([]byte, 1024)
+//	large := make([]byte, 4194304)
+//	p.Put(1024, small)
+//	p.Put(4194304, large)
+//
+//	small2 := p.Get(1024).([]byte)
+//	large2 := p.Get(4194304).([]byte)
+//	fmt.Println("small2 len:", len(small2))
+//	fmt.Println("large2 len:", len(large2))
+//
+//	// Output:
+//	// small2 len: 1024
+//	// large2 len: 4194304
+//
+package multipool
 
 import (
 	"fmt"
