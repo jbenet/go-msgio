@@ -2,17 +2,16 @@ package msgio
 
 import (
 	"io"
-	"sync"
+
+	multipool "github.com/jbenet/go-msgio/multipool"
 )
 
 // Chan is a msgio duplex channel. It is used to have a channel interface
 // around a msgio.Reader or Writer.
 type Chan struct {
-	Buffers   [][]byte
 	MsgChan   chan []byte
 	ErrChan   chan error
 	CloseChan chan bool
-	BufPool   *sync.Pool
 }
 
 // NewChan constructs a Chan with a given buffer size.
@@ -24,40 +23,24 @@ func NewChan(chanSize int) *Chan {
 	}
 }
 
-// NewChanWithPool constructs a Chan with a given buffer size, and a sync.Pool
-// for concurrency-safe allocation of read buffers.
-func NewChanWithPool(chanSize int, pool *sync.Pool) *Chan {
-	return &Chan{
-		MsgChan:   make(chan []byte, chanSize),
-		ErrChan:   make(chan error, 1),
-		CloseChan: make(chan bool, 2),
-		BufPool:   pool,
-	}
+// ReadFrom wraps the given io.Reader with a msgio.Reader, reads all
+// messages, ands sends them down the channel.
+func (s *Chan) ReadFrom(r io.Reader) {
+	s.readFrom(NewReader(r))
 }
 
-func (s *Chan) getBuffer(size int) []byte {
-	if s.BufPool == nil {
-		return make([]byte, size)
-	}
-
-	bufi := s.BufPool.Get()
-	buf, ok := bufi.([]byte)
-	if !ok {
-		panic("Got invalid type from sync pool!")
-	}
-	return buf
+// ReadFromWithPool wraps the given io.Reader with a msgio.Reader, reads all
+// messages, ands sends them down the channel. Uses given Pool
+func (s *Chan) ReadFromWithPool(r io.Reader, p *multipool.Pool) {
+	s.readFrom(NewReaderWithPool(r, p))
 }
 
 // ReadFrom wraps the given io.Reader with a msgio.Reader, reads all
 // messages, ands sends them down the channel.
-func (s *Chan) ReadFrom(r io.Reader, maxMsgLen int) {
-	// new buffer per message
-	// if bottleneck, cycle around a set of buffers
-	mr := NewReader(r)
+func (s *Chan) readFrom(mr Reader) {
 Loop:
 	for {
-		buf := s.getBuffer(maxMsgLen)
-		l, err := mr.ReadMsg(buf)
+		buf, err := mr.ReadMsg()
 		if err != nil {
 			if err == io.EOF {
 				break Loop // done
@@ -71,7 +54,7 @@ Loop:
 		select {
 		case <-s.CloseChan:
 			break Loop // told we're done
-		case s.MsgChan <- buf[:l]:
+		case s.MsgChan <- buf:
 			// ok seems fine. send it away
 		}
 	}

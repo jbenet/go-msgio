@@ -3,13 +3,20 @@ package msgio
 import (
 	"encoding/binary"
 	"io"
+
+	multipool "github.com/jbenet/go-msgio/multipool"
 )
 
 // NBO is NetworkByteOrder
 var NBO = binary.BigEndian
 
+const lengthSize = 4
+
 // Writer is the msgio Writer interface. It writes len-framed messages.
 type Writer interface {
+
+	// Write writes passed in buffer as a single message.
+	Write([]byte) error
 
 	// WriteMsg writes the msg in the passed in buffer.
 	WriteMsg([]byte) error
@@ -24,13 +31,19 @@ type WriteCloser interface {
 // Reader is the msgio Reader interface. It reads len-framed messages.
 type Reader interface {
 
-	// ReadMsg reads the next message from the Reader.
+	// Read reads the next message from the Reader.
 	// The client must pass a buffer large enough, or io.ErrShortBuffer will be
 	// returned.
-	//
-	// Warning: as of this writing, this error is destructive. the length will have
-	// been read.
-	ReadMsg([]byte) (int, error)
+	Read([]byte) (int, error)
+
+	// ReadMsg reads the next message from the Reader.
+	// Uses a multipool.Pool internally to reuse buffers. io.ErrShortBuffer will
+	// be returned if the Pool.Get(...) returns nil.
+	// User may call ReleaseMsg(msg) to signal a buffer can be reused.
+	ReadMsg() ([]byte, error)
+
+	// ReleaseMsg signals a buffer can be reused.
+	ReleaseMsg([]byte)
 }
 
 // ReadCloser combines a Reader and Closer.
@@ -63,6 +76,10 @@ func NewWriter(w io.Writer) WriteCloser {
 	return &writer{w}
 }
 
+func (s *writer) Write(msg []byte) (err error) {
+	return s.WriteMsg(msg)
+}
+
 func (s *writer) WriteMsg(msg []byte) (err error) {
 	length := uint32(len(msg))
 	if err := binary.Write(s.W, NBO, &length); err != nil {
@@ -81,39 +98,79 @@ func (s *writer) Close() error {
 
 // reader is the underlying type that implements the Reader interface.
 type reader struct {
-	R    io.Reader
+	R io.Reader
+
 	lbuf []byte
+	next int
+	pool *multipool.Pool
 }
 
 // NewReader wraps an io.Reader with a msgio framed reader. The msgio.Reader
 // will read whole messages at a time (using the length). Assumes an equivalent
 // writer on the other side.
 func NewReader(r io.Reader) ReadCloser {
-	return &reader{r, make([]byte, 4)}
+	return NewReaderWithPool(r, &multipool.ByteSlicePool)
+}
+
+// NewReaderWithPool wraps an io.Reader with a msgio framed reader. The msgio.Reader
+// will read whole messages at a time (using the length). Assumes an equivalent
+// writer on the other side.  It uses a given multipool.Pool
+func NewReaderWithPool(r io.Reader, p *multipool.Pool) ReadCloser {
+	if p == nil {
+		panic("nil pool")
+	}
+	return &reader{r, make([]byte, lengthSize), -1, p}
 }
 
 // nextMsgLen reads the length of the next msg into s.lbuf, and returns it.
 // WARNING: like ReadMsg, nextMsgLen is destructive. It reads from the internal
 // reader.
 func (s *reader) nextMsgLen() (int, error) {
-	if _, err := io.ReadFull(s.R, s.lbuf); err != nil {
-		return 0, err
+	if s.next == -1 {
+		if _, err := io.ReadFull(s.R, s.lbuf); err != nil {
+			return 0, err
+		}
+		s.next = int(NBO.Uint32(s.lbuf))
 	}
-	length := int(NBO.Uint32(s.lbuf))
-	return length, nil
+	return s.next, nil
 }
 
-func (s *reader) ReadMsg(msg []byte) (int, error) {
+func (s *reader) Read(msg []byte) (int, error) {
 	length, err := s.nextMsgLen()
 	if err != nil {
 		return 0, err
 	}
 
-	if length < 0 || length > len(msg) {
+	if length > len(msg) {
 		return 0, io.ErrShortBuffer
 	}
 	_, err = io.ReadFull(s.R, msg[:length])
+	s.next = -1 // signal we've consumed this msg
 	return length, err
+}
+
+func (s *reader) ReadMsg() ([]byte, error) {
+	length, err := s.nextMsgLen()
+	if err != nil {
+		return nil, err
+	}
+
+	msgb := s.pool.Get(uint32(length))
+	if msgb == nil {
+		return nil, io.ErrShortBuffer
+	}
+	msg := msgb.([]byte)[:length]
+	_, err = io.ReadFull(s.R, msg)
+	s.next = -1 // signal we've consumed this msg
+	return msg, err
+}
+
+func (s *reader) ReleaseMsg(msg []byte) {
+	c := cap(msg)
+	if c > multipool.MaxLength {
+		c = multipool.MaxLength
+	}
+	s.pool.Put(uint32(c), msg)
 }
 
 func (s *reader) Close() error {
