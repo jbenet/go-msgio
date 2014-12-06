@@ -23,25 +23,31 @@ func TestPool(t *testing.T) {
 	if p.Get(10) != nil {
 		t.Fatal("expected empty")
 	}
-	p.Put(10, "a")
-	p.Put(1000, "b")
-	if g := p.Get(10); g != "a" {
+	p.Put(16, "a")
+	p.Put(2048, "b")
+	if g := p.Get(16); g != "a" {
 		t.Fatalf("got %#v; want a", g)
 	}
-	if g := p.Get(1000); g != "b" {
+	if g := p.Get(2048); g != "b" {
 		t.Fatalf("got %#v; want b", g)
 	}
-	if g := p.Get(10); g != nil {
+	if g := p.Get(16); g != nil {
 		t.Fatalf("got %#v; want nil", g)
 	}
-	if g := p.Get(1000); g != nil {
+	if g := p.Get(2048); g != nil {
 		t.Fatalf("got %#v; want nil", g)
 	}
 	if g := p.Get(1); g != nil {
 		t.Fatalf("got %#v; want nil", g)
 	}
+	p.Put(1023, "d")
+	if g := p.Get(1024); g != nil {
+		t.Fatalf("got %#v; want nil", g)
+	}
+	if g := p.Get(512); g != "d" {
+		t.Fatalf("got %#v; want d", g)
+	}
 
-	p.Put(10, "c")
 	debug.SetGCPercent(100) // to allow following GC to actually run
 	runtime.GC()
 	if g := p.Get(10); g != nil {

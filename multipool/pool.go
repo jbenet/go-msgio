@@ -25,6 +25,9 @@ import (
 	"sync"
 )
 
+// MaxLength is the maximum length of an element that can be added to the Pool.
+const MaxLength = 1 << 32
+
 // Pool is a pool to handle cases of reusing elements of varying sizes.
 // It maintains up to  32 internal pools, for each power of 2 in 0-32.
 type Pool struct {
@@ -34,11 +37,6 @@ type Pool struct {
 
 	// New is a function that constructs a new element in the pool, with given len
 	New func(len int) interface{}
-}
-
-func (p *Pool) getPoolForLength(length uint32) *sync.Pool {
-	idx := largerPowerOfTwo(length)
-	return p.getPool(idx)
 }
 
 func (p *Pool) getPool(idx uint32) *sync.Pool {
@@ -76,7 +74,8 @@ func (p *Pool) Get(length uint32) interface{} {
 
 // Put adds x to the pool.
 func (p *Pool) Put(length uint32, val interface{}) {
-	sp := p.getPoolForLength(length)
+	idx := smallerPowerOfTwo(length)
+	sp := p.getPool(idx)
 	sp.Put(val)
 }
 
@@ -84,6 +83,16 @@ func largerPowerOfTwo(num uint32) uint32 {
 	for p := uint32(0); p < 32; p++ {
 		if (0x1 << p) >= num {
 			return p
+		}
+	}
+
+	panic("unreachable")
+}
+
+func smallerPowerOfTwo(num uint32) uint32 {
+	for p := uint32(1); p < 32; p++ {
+		if (0x1 << p) > num {
+			return p - 1
 		}
 	}
 
