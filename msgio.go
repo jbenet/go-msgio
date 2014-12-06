@@ -5,7 +5,7 @@ import (
 	"io"
 	"sync"
 
-	multipool "github.com/jbenet/go-msgio/multipool"
+	mpool "github.com/jbenet/go-msgio/mpool"
 )
 
 // NBO is NetworkByteOrder
@@ -38,7 +38,7 @@ type Reader interface {
 	Read([]byte) (int, error)
 
 	// ReadMsg reads the next message from the Reader.
-	// Uses a multipool.Pool internally to reuse buffers. io.ErrShortBuffer will
+	// Uses a mpool.Pool internally to reuse buffers. io.ErrShortBuffer will
 	// be returned if the Pool.Get(...) returns nil.
 	// User may call ReleaseMsg(msg) to signal a buffer can be reused.
 	ReadMsg() ([]byte, error)
@@ -111,7 +111,7 @@ type reader struct {
 
 	lbuf []byte
 	next int
-	pool *multipool.Pool
+	pool *mpool.Pool
 	lock sync.Locker
 }
 
@@ -119,13 +119,13 @@ type reader struct {
 // will read whole messages at a time (using the length). Assumes an equivalent
 // writer on the other side.
 func NewReader(r io.Reader) ReadCloser {
-	return NewReaderWithPool(r, &multipool.ByteSlicePool)
+	return NewReaderWithPool(r, &mpool.ByteSlicePool)
 }
 
 // NewReaderWithPool wraps an io.Reader with a msgio framed reader. The msgio.Reader
 // will read whole messages at a time (using the length). Assumes an equivalent
-// writer on the other side.  It uses a given multipool.Pool
-func NewReaderWithPool(r io.Reader, p *multipool.Pool) ReadCloser {
+// writer on the other side.  It uses a given mpool.Pool
+func NewReaderWithPool(r io.Reader, p *mpool.Pool) ReadCloser {
 	if p == nil {
 		panic("nil pool")
 	}
@@ -189,8 +189,8 @@ func (s *reader) ReadMsg() ([]byte, error) {
 
 func (s *reader) ReleaseMsg(msg []byte) {
 	c := cap(msg)
-	if c > multipool.MaxLength {
-		c = multipool.MaxLength
+	if c > mpool.MaxLength {
+		c = mpool.MaxLength
 	}
 	s.pool.Put(uint32(c), msg)
 }

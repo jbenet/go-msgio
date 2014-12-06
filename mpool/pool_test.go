@@ -5,7 +5,7 @@
 // Pool is no-op under race detector, so all these tests do not work.
 // +build !race
 
-package multipool
+package mpool
 
 import (
 	"fmt"
