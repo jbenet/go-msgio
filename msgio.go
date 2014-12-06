@@ -3,6 +3,7 @@ package msgio
 import (
 	"encoding/binary"
 	"io"
+	"sync"
 
 	multipool "github.com/jbenet/go-msgio/multipool"
 )
@@ -68,12 +69,14 @@ type ReadWriteCloser interface {
 // writer is the underlying type that implements the Writer interface.
 type writer struct {
 	W io.Writer
+
+	sync.Mutex
 }
 
 // NewWriter wraps an io.Writer with a msgio framed writer. The msgio.Writer
 // will write the length prefix of every message written.
 func NewWriter(w io.Writer) WriteCloser {
-	return &writer{w}
+	return &writer{W: w}
 }
 
 func (s *writer) Write(msg []byte) (err error) {
@@ -81,6 +84,9 @@ func (s *writer) Write(msg []byte) (err error) {
 }
 
 func (s *writer) WriteMsg(msg []byte) (err error) {
+	s.Lock()
+	defer s.Unlock()
+
 	length := uint32(len(msg))
 	if err := binary.Write(s.W, NBO, &length); err != nil {
 		return err
@@ -103,6 +109,7 @@ type reader struct {
 	lbuf []byte
 	next int
 	pool *multipool.Pool
+	sync.Mutex
 }
 
 // NewReader wraps an io.Reader with a msgio framed reader. The msgio.Reader
@@ -119,7 +126,12 @@ func NewReaderWithPool(r io.Reader, p *multipool.Pool) ReadCloser {
 	if p == nil {
 		panic("nil pool")
 	}
-	return &reader{r, make([]byte, lengthSize), -1, p}
+	return &reader{
+		R:    r,
+		lbuf: make([]byte, lengthSize),
+		next: -1,
+		pool: p,
+	}
 }
 
 // nextMsgLen reads the length of the next msg into s.lbuf, and returns it.
@@ -136,6 +148,9 @@ func (s *reader) nextMsgLen() (int, error) {
 }
 
 func (s *reader) Read(msg []byte) (int, error) {
+	s.Lock()
+	defer s.Unlock()
+
 	length, err := s.nextMsgLen()
 	if err != nil {
 		return 0, err
@@ -150,6 +165,9 @@ func (s *reader) Read(msg []byte) (int, error) {
 }
 
 func (s *reader) ReadMsg() ([]byte, error) {
+	s.Lock()
+	defer s.Unlock()
+
 	length, err := s.nextMsgLen()
 	if err != nil {
 		return nil, err
@@ -174,6 +192,9 @@ func (s *reader) ReleaseMsg(msg []byte) {
 }
 
 func (s *reader) Close() error {
+	s.Lock()
+	defer s.Unlock()
+
 	if c, ok := s.R.(io.Closer); ok {
 		return c.Close()
 	}
