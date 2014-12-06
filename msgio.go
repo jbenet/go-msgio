@@ -188,11 +188,7 @@ func (s *reader) ReadMsg() ([]byte, error) {
 }
 
 func (s *reader) ReleaseMsg(msg []byte) {
-	c := cap(msg)
-	if c > mpool.MaxLength {
-		c = mpool.MaxLength
-	}
-	s.pool.Put(uint32(c), msg)
+	s.pool.Put(uint32(cap(msg)), msg)
 }
 
 func (s *reader) Close() error {
