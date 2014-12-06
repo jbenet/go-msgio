@@ -70,13 +70,13 @@ type ReadWriteCloser interface {
 type writer struct {
 	W io.Writer
 
-	sync.Mutex
+	lock sync.Locker
 }
 
 // NewWriter wraps an io.Writer with a msgio framed writer. The msgio.Writer
 // will write the length prefix of every message written.
 func NewWriter(w io.Writer) WriteCloser {
-	return &writer{W: w}
+	return &writer{W: w, lock: new(sync.Mutex)}
 }
 
 func (s *writer) Write(msg []byte) (err error) {
@@ -84,8 +84,8 @@ func (s *writer) Write(msg []byte) (err error) {
 }
 
 func (s *writer) WriteMsg(msg []byte) (err error) {
-	s.Lock()
-	defer s.Unlock()
+	s.lock.Lock()
+	defer s.lock.Unlock()
 
 	length := uint32(len(msg))
 	if err := binary.Write(s.W, NBO, &length); err != nil {
@@ -96,6 +96,9 @@ func (s *writer) WriteMsg(msg []byte) (err error) {
 }
 
 func (s *writer) Close() error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	if c, ok := s.W.(io.Closer); ok {
 		return c.Close()
 	}
@@ -109,7 +112,7 @@ type reader struct {
 	lbuf []byte
 	next int
 	pool *multipool.Pool
-	sync.Mutex
+	lock sync.Locker
 }
 
 // NewReader wraps an io.Reader with a msgio framed reader. The msgio.Reader
@@ -131,6 +134,7 @@ func NewReaderWithPool(r io.Reader, p *multipool.Pool) ReadCloser {
 		lbuf: make([]byte, lengthSize),
 		next: -1,
 		pool: p,
+		lock: new(sync.Mutex),
 	}
 }
 
@@ -148,8 +152,8 @@ func (s *reader) nextMsgLen() (int, error) {
 }
 
 func (s *reader) Read(msg []byte) (int, error) {
-	s.Lock()
-	defer s.Unlock()
+	s.lock.Lock()
+	defer s.lock.Unlock()
 
 	length, err := s.nextMsgLen()
 	if err != nil {
@@ -165,8 +169,8 @@ func (s *reader) Read(msg []byte) (int, error) {
 }
 
 func (s *reader) ReadMsg() ([]byte, error) {
-	s.Lock()
-	defer s.Unlock()
+	s.lock.Lock()
+	defer s.lock.Unlock()
 
 	length, err := s.nextMsgLen()
 	if err != nil {
@@ -192,8 +196,8 @@ func (s *reader) ReleaseMsg(msg []byte) {
 }
 
 func (s *reader) Close() error {
-	s.Lock()
-	defer s.Unlock()
+	s.lock.Lock()
+	defer s.lock.Unlock()
 
 	if c, ok := s.R.(io.Closer); ok {
 		return c.Close()

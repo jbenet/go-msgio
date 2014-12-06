@@ -38,6 +38,9 @@ func (s *Chan) ReadFromWithPool(r io.Reader, p *multipool.Pool) {
 // ReadFrom wraps the given io.Reader with a msgio.Reader, reads all
 // messages, ands sends them down the channel.
 func (s *Chan) readFrom(mr Reader) {
+	// single reader, no need for Mutex
+	mr.(*reader).lock = new(nullLocker)
+
 Loop:
 	for {
 		buf, err := mr.ReadMsg()
@@ -70,6 +73,9 @@ func (s *Chan) WriteTo(w io.Writer) {
 	// new buffer per message
 	// if bottleneck, cycle around a set of buffers
 	mw := NewWriter(w)
+
+	// single writer, no need for Mutex
+	mw.(*writer).lock = new(nullLocker)
 Loop:
 	for {
 		select {
@@ -100,3 +106,9 @@ Loop:
 func (s *Chan) Close() {
 	s.CloseChan <- true
 }
+
+// nullLocker conforms to the sync.Locker interface but does nothing.
+type nullLocker struct{}
+
+func (l *nullLocker) Lock()   {}
+func (l *nullLocker) Unlock() {}
