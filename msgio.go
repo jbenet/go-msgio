@@ -150,6 +150,12 @@ func NewReaderWithPool(r io.Reader, p *mpool.Pool) ReadCloser {
 // WARNING: like Read, NextMsgLen is destructive. It reads from the internal
 // reader.
 func (s *reader) NextMsgLen() (int, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	return s.nextMsgLen()
+}
+
+func (s *reader) nextMsgLen() (int, error) {
 	if s.next == -1 {
 		if _, err := io.ReadFull(s.R, s.lbuf); err != nil {
 			return 0, err
@@ -163,7 +169,7 @@ func (s *reader) Read(msg []byte) (int, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	length, err := s.NextMsgLen()
+	length, err := s.nextMsgLen()
 	if err != nil {
 		return 0, err
 	}
@@ -180,7 +186,7 @@ func (s *reader) ReadMsg() ([]byte, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	length, err := s.NextMsgLen()
+	length, err := s.nextMsgLen()
 	if err != nil {
 		return nil, err
 	}
