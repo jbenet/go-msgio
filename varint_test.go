@@ -28,10 +28,10 @@ func TestVarintReadWriteMsgSync(t *testing.T) {
 }
 
 func TestVarintWrite(t *testing.T) {
-
 	SubtestVarintWrite(t, []byte("hello world"))
 	SubtestVarintWrite(t, []byte("hello world hello world hello world"))
 	SubtestVarintWrite(t, make([]byte, 1<<20))
+	SubtestVarintWrite(t, []byte(""))
 }
 
 func SubtestVarintWrite(t *testing.T, msg []byte) {
@@ -42,14 +42,25 @@ func SubtestVarintWrite(t *testing.T, msg []byte) {
 		t.Fatal(err)
 	}
 
+	bb := buf.Bytes()
+
 	sbr := simpleByteReader{R: buf}
-	n, err := binary.ReadUvarint(&sbr)
+	length, err := binary.ReadUvarint(&sbr)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	t.Logf("checking varint is %d", len(msg))
-	if int(n) != len(msg) {
-		t.Fatalf("incorrect varint: n != %d", len(msg))
+	if int(length) != len(msg) {
+		t.Fatalf("incorrect varint: %d != %d", length, len(msg))
+	}
+
+	lbuf := make([]byte, binary.MaxVarintLen64)
+	n := binary.PutUvarint(lbuf, length)
+
+	bblen := int(length) + n
+	t.Logf("checking wrote (%d + %d) bytes", length, n)
+	if len(bb) != bblen {
+		t.Fatalf("wrote incorrect number of bytes: %d != %d", len(bb), bblen)
 	}
 }
