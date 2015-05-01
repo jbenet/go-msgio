@@ -141,6 +141,11 @@ func (s *varintReader) ReadMsg() ([]byte, error) {
 		return nil, err
 	}
 
+	// more then 512mb sounds exessive
+	if length > 512*1024*1024 {
+		return nil, ErrMsgTooLarge
+	}
+
 	msgb := s.pool.Get(uint32(length))
 	if msgb == nil {
 		return nil, io.ErrShortBuffer

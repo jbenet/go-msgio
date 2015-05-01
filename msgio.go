@@ -2,6 +2,7 @@ package msgio
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"sync"
 
@@ -10,6 +11,9 @@ import (
 
 // NBO is NetworkByteOrder
 var NBO = binary.BigEndian
+
+//  ErrMsgTooLarge is returned when the message length is exessive
+var ErrMsgTooLarge = errors.New("message too large")
 
 const lengthSize = 4
 
@@ -189,6 +193,11 @@ func (s *reader) ReadMsg() ([]byte, error) {
 	length, err := s.nextMsgLen()
 	if err != nil {
 		return nil, err
+	}
+
+	// more then 512mb sounds exessive
+	if length > 512*1024*1024 {
+		return nil, ErrMsgTooLarge
 	}
 
 	msgb := s.pool.Get(uint32(length))
