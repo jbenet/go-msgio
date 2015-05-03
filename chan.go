@@ -32,7 +32,7 @@ func (s *Chan) ReadFrom(r io.Reader) {
 // ReadFromWithPool wraps the given io.Reader with a msgio.Reader, reads all
 // messages, ands sends them down the channel. Uses given Pool
 func (s *Chan) ReadFromWithPool(r io.Reader, p *mpool.Pool) {
-	s.readFrom(NewReaderWithPool(r, p))
+	s.readFrom(NewReader(r, Pool(p)))
 }
 
 // ReadFrom wraps the given io.Reader with a msgio.Reader, reads all

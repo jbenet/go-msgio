@@ -13,7 +13,7 @@ import (
 var NBO = binary.BigEndian
 
 //  ErrMsgTooLarge is returned when the message length is exessive
-var ErrMsgTooLarge = errors.New("message too large")
+var ErrMsgTooLarge = errors.New("msgio: message too large")
 
 const (
 	lengthSize     = 4
@@ -131,28 +131,65 @@ type reader struct {
 	max  int // the maximal message size (in bytes) this reader handles
 }
 
+// ReaderOption takes a reader and modfies it internally
+type ReaderOption func(*reader) error
+
+// MaxSize is an option, it sets the internal maximum message size of that reader
+func MaxSize(i int) ReaderOption {
+	return func(r *reader) error {
+		if i < 0 {
+			return errors.New("msgio: can't use negativ maximum") // TODO(cryptix): we could disable the check....?
+		}
+		// TODO(cryptix): not sure, what do we want to support
+		if i > 10*1024*1024 { // 10mb
+			return ErrMsgTooLarge
+		}
+		r.max = i
+		return nil
+	}
+}
+
+// Pool is an option, it sets the pool that is used by this reader
+func Pool(p *mpool.Pool) ReaderOption {
+	return func(r *reader) error {
+		if p == nil {
+			return errors.New("msgio: can't use nil pool")
+		}
+		return nil
+	}
+}
+
 // NewReader wraps an io.Reader with a msgio framed reader. The msgio.Reader
 // will read whole messages at a time (using the length). Assumes an equivalent
 // writer on the other side.
-func NewReader(r io.Reader) ReadCloser {
-	return NewReaderWithPool(r, &mpool.ByteSlicePool)
-}
+func NewReader(r io.Reader, opts ...ReaderOption) ReadCloser {
 
-// NewReaderWithPool wraps an io.Reader with a msgio framed reader. The msgio.Reader
-// will read whole messages at a time (using the length). Assumes an equivalent
-// writer on the other side.  It uses a given mpool.Pool
-func NewReaderWithPool(r io.Reader, p *mpool.Pool) ReadCloser {
-	if p == nil {
-		panic("nil pool")
-	}
-	return &reader{
+	rd := &reader{
 		R:    r,
 		lbuf: make([]byte, lengthSize),
 		next: -1,
-		pool: p,
 		lock: new(sync.Mutex),
-		max:  defaultMaxSize,
 	}
+
+	for _, opt := range opts {
+		if err := opt(rd); err != nil {
+			/* TODO(cryptix): i'd like to return an error here to signal callers
+			but that would escalate the chan reader func signatures..
+			*/
+			panic(err)
+		}
+	}
+
+	// defaults
+	if rd.pool == nil {
+		rd.pool = &mpool.ByteSlicePool
+	}
+
+	if rd.max == 0 {
+		rd.max = defaultMaxSize
+	}
+
+	return rd
 }
 
 // NextMsgLen reads the length of the next msg into s.lbuf, and returns it.
