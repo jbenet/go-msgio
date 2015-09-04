@@ -3,12 +3,13 @@ package msgio
 import (
 	"bytes"
 	"fmt"
-	randbuf "github.com/jbenet/go-randbuf"
 	"io"
 	"math/rand"
 	"sync"
 	"testing"
 	"time"
+
+	randbuf "github.com/jbenet/go-randbuf"
 )
 
 func TestReadWrite(t *testing.T) {
@@ -178,5 +179,33 @@ func SubtestReadWriteMsgSync(t *testing.T, writer WriteCloser, reader ReadCloser
 
 	for e := range errs {
 		t.Error(e)
+	}
+}
+
+func TestReadMaxSize(t *testing.T) {
+	buf := new(bytes.Buffer)
+	writer := NewWriter(buf)
+	writer.WriteMsg(bytes.Repeat([]byte("x"), 11))
+	rd := NewReader(buf, MaxSize(10))
+	_, err := rd.ReadMsg()
+	if err == nil {
+		t.Fatal("should get an error")
+	}
+	if err != ErrMsgTooLarge {
+		t.Fatal("should return ErrMsgTooLarge")
+	}
+}
+
+func TestReadMaxSize_defaultSize(t *testing.T) {
+	buf := new(bytes.Buffer)
+	writer := NewWriter(buf)
+	writer.WriteMsg(bytes.Repeat([]byte("x"), defaultMaxSize+1))
+	rd := NewReader(buf)
+	_, err := rd.ReadMsg()
+	if err == nil {
+		t.Fatal("should get an error")
+	}
+	if err != ErrMsgTooLarge {
+		t.Fatal("should return ErrMsgTooLarge")
 	}
 }
