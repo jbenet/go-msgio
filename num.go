@@ -18,7 +18,7 @@ func WriteLen(w io.Writer, l int) error {
 // if buf is non-nil, it reuses the buffer. Ex:
 //    l, err := ReadLen(r, nil)
 //    _, err := ReadLen(r, buf)
-func ReadLen(r io.Reader, buf []byte) (int, error) {
+func ReadLen(r io.Reader, buf []byte) (uint32, error) {
 	if len(buf) < 4 {
 		buf = make([]byte, 4)
 	}
@@ -28,6 +28,5 @@ func ReadLen(r io.Reader, buf []byte) (int, error) {
 		return 0, err
 	}
 
-	n := int(NBO.Uint32(buf))
-	return n, nil
+	return NBO.Uint32(buf), nil
 }
