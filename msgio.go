@@ -9,7 +9,13 @@ import (
 )
 
 //  ErrMsgTooLarge is returned when the message length is exessive
-var ErrMsgTooLarge = errors.New("message too large")
+var ErrMsgTooLarge = errors.New("msgio: message too large")
+
+//ErrMalformedLength is returned when the message contains an illegal (negative) length
+var ErrMalformedLength = errors.New("msgio: malformed length value")
+
+//ErrBadCall is returned when NextMsgLen() was called before the previous message was read
+var ErrBadCall = errors.New("msgio: bad call - previous message wasn't handled")
 
 const (
 	lengthSize     = 4
@@ -45,13 +51,12 @@ type Reader interface {
 	// be returned if the Pool.Get(...) returns nil.
 	// User may call ReleaseMsg(msg) to signal a buffer can be reused.
 	ReadMsg() ([]byte, error)
-
 	// ReleaseMsg signals a buffer can be reused.
 	ReleaseMsg([]byte)
 
 	// NextMsgLen returns the length of the next (peeked) message. Does
 	// not destroy the message or have other adverse effects
-	NextMsgLen() (int, error)
+	NextMsgLen() (uint32, error)
 }
 
 // ReadCloser combines a Reader and Closer.
@@ -119,10 +124,11 @@ type reader struct {
 	R io.Reader
 
 	lbuf []byte
-	next int
+	next uint32
+	more bool
 	pool *mpool.Pool
 	lock sync.Locker
-	max  int // the maximal message size (in bytes) this reader handles
+	max  uint32 // the maximal message size (in bytes) this reader handles
 }
 
 // NewReader wraps an io.Reader with a msgio framed reader. The msgio.Reader
@@ -142,7 +148,7 @@ func NewReaderWithPool(r io.Reader, p *mpool.Pool) ReadCloser {
 	return &reader{
 		R:    r,
 		lbuf: make([]byte, lengthSize),
-		next: -1,
+		more: true,
 		pool: p,
 		lock: new(sync.Mutex),
 		max:  defaultMaxSize,
@@ -152,16 +158,27 @@ func NewReaderWithPool(r io.Reader, p *mpool.Pool) ReadCloser {
 // NextMsgLen reads the length of the next msg into s.lbuf, and returns it.
 // WARNING: like Read, NextMsgLen is destructive. It reads from the internal
 // reader.
-func (s *reader) NextMsgLen() (int, error) {
+func (s *reader) NextMsgLen() (uint32, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	return s.nextMsgLen()
 }
 
-func (s *reader) nextMsgLen() (n int, err error) {
-	if s.next == -1 {
-		s.next, err = ReadLen(s.R, s.lbuf)
+func (s *reader) nextMsgLen() (uint32, error) {
+	var err error
+	if !s.more {
+		return 0, ErrBadCall
 	}
+
+	s.next, err = ReadLen(s.R, s.lbuf)
+	if err != nil {
+		return 0, err
+	}
+
+	if s.next > s.max {
+		return 0, ErrMsgTooLarge
+	}
+
 	return s.next, err
 }
 
@@ -171,15 +188,21 @@ func (s *reader) Read(msg []byte) (int, error) {
 
 	length, err := s.nextMsgLen()
 	if err != nil {
+		s.more = false
 		return 0, err
 	}
 
-	if length > len(msg) {
+	if length > uint32(len(msg)) {
+		s.more = false
 		return 0, io.ErrShortBuffer
 	}
 	_, err = io.ReadFull(s.R, msg[:length])
-	s.next = -1 // signal we've consumed this msg
-	return length, err
+	if err != nil {
+		s.more = false
+		return 0, err
+	}
+	s.more = true // signal we've consumed this msg
+	return int(length), nil
 }
 
 func (s *reader) ReadMsg() ([]byte, error) {
@@ -188,21 +211,24 @@ func (s *reader) ReadMsg() ([]byte, error) {
 
 	length, err := s.nextMsgLen()
 	if err != nil {
+		s.more = false
 		return nil, err
 	}
 
-	if length > s.max {
-		return nil, ErrMsgTooLarge
-	}
-
-	msgb := s.pool.Get(uint32(length))
+	msgb := s.pool.Get(length)
 	if msgb == nil {
+		s.more = false
 		return nil, io.ErrShortBuffer
 	}
 	msg := msgb.([]byte)[:length]
+
 	_, err = io.ReadFull(s.R, msg)
-	s.next = -1 // signal we've consumed this msg
-	return msg, err
+	if err != nil {
+		s.more = false
+		return nil, err
+	}
+	s.more = true // signal we've consumed this msg
+	return msg, nil
 }
 
 func (s *reader) ReleaseMsg(msg []byte) {

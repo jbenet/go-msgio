@@ -64,10 +64,11 @@ type varintReader struct {
 	br io.ByteReader // for reading varints.
 
 	lbuf []byte
-	next int
+	next uint32
+	more bool
 	pool *mpool.Pool
 	lock sync.Locker
-	max  int // the maximal message size (in bytes) this reader handles
+	max  uint32 // the maximal message size (in bytes) this reader handles
 }
 
 // NewVarintReader wraps an io.Reader with a varint msgio framed reader.
@@ -90,7 +91,7 @@ func NewVarintReaderWithPool(r io.Reader, p *mpool.Pool) ReadCloser {
 		R:    r,
 		br:   &simpleByteReader{R: r},
 		lbuf: make([]byte, binary.MaxVarintLen64),
-		next: -1,
+		more: true,
 		pool: p,
 		lock: new(sync.Mutex),
 		max:  defaultMaxSize,
@@ -100,20 +101,25 @@ func NewVarintReaderWithPool(r io.Reader, p *mpool.Pool) ReadCloser {
 // NextMsgLen reads the length of the next msg into s.lbuf, and returns it.
 // WARNING: like Read, NextMsgLen is destructive. It reads from the internal
 // reader.
-func (s *varintReader) NextMsgLen() (int, error) {
+func (s *varintReader) NextMsgLen() (uint32, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	return s.nextMsgLen()
 }
 
-func (s *varintReader) nextMsgLen() (int, error) {
-	if s.next == -1 {
-		length, err := binary.ReadUvarint(s.br)
-		if err != nil {
-			return 0, err
-		}
-		s.next = int(length)
+func (s *varintReader) nextMsgLen() (uint32, error) {
+	if !s.more {
+		return 0, ErrBadCall
 	}
+	length, err := binary.ReadUvarint(s.br)
+	if err != nil {
+		return 0, err
+	}
+	n := uint32(length)
+	if n > s.max {
+		return 0, ErrMsgTooLarge
+	}
+	s.next = n
 	return s.next, nil
 }
 
@@ -123,15 +129,17 @@ func (s *varintReader) Read(msg []byte) (int, error) {
 
 	length, err := s.nextMsgLen()
 	if err != nil {
+		s.more = false
 		return 0, err
 	}
 
-	if length > len(msg) {
+	if length > uint32(len(msg)) {
+		s.more = false
 		return 0, io.ErrShortBuffer
 	}
 	_, err = io.ReadFull(s.R, msg[:length])
-	s.next = -1 // signal we've consumed this msg
-	return length, err
+	s.more = true // signal we've consumed this msg
+	return int(length), err
 }
 
 func (s *varintReader) ReadMsg() ([]byte, error) {
@@ -140,21 +148,23 @@ func (s *varintReader) ReadMsg() ([]byte, error) {
 
 	length, err := s.nextMsgLen()
 	if err != nil {
+		s.more = false
 		return nil, err
-	}
-
-	if length > s.max {
-		return nil, ErrMsgTooLarge
 	}
 
 	msgb := s.pool.Get(uint32(length))
 	if msgb == nil {
+		s.more = false
 		return nil, io.ErrShortBuffer
 	}
 	msg := msgb.([]byte)[:length]
 	_, err = io.ReadFull(s.R, msg)
-	s.next = -1 // signal we've consumed this msg
-	return msg, err
+	if err != nil {
+		s.more = false
+		return nil, err
+	}
+	s.more = true // signal we've consumed this msg
+	return msg, nil
 }
 
 func (s *varintReader) ReleaseMsg(msg []byte) {
