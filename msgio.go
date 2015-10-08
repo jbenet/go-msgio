@@ -177,6 +177,7 @@ func (s *reader) Read(msg []byte) (int, error) {
 	if length > len(msg) {
 		return 0, io.ErrShortBuffer
 	}
+
 	_, err = io.ReadFull(s.R, msg[:length])
 	s.next = -1 // signal we've consumed this msg
 	return length, err
@@ -191,7 +192,7 @@ func (s *reader) ReadMsg() ([]byte, error) {
 		return nil, err
 	}
 
-	if length > s.max {
+	if length > s.max || length < 0 {
 		return nil, ErrMsgTooLarge
 	}
 
