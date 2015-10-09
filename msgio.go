@@ -158,11 +158,16 @@ func (s *reader) NextMsgLen() (int, error) {
 	return s.nextMsgLen()
 }
 
-func (s *reader) nextMsgLen() (n int, err error) {
+func (s *reader) nextMsgLen() (int, error) {
 	if s.next == -1 {
-		s.next, err = ReadLen(s.R, s.lbuf)
+		n, err := ReadLen(s.R, s.lbuf)
+		if err != nil {
+			return 0, err
+		}
+
+		s.next = n
 	}
-	return s.next, err
+	return s.next, nil
 }
 
 func (s *reader) Read(msg []byte) (int, error) {
